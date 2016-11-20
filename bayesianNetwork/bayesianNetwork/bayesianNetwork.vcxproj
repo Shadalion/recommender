@@ -80,6 +80,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DataParser.h" />
+    <ClInclude Include="NetworkTrainer.h" />
     <ClInclude Include="GenreModel.h" />
     <ClInclude Include="Movie.h" />
     <ClInclude Include="MovieRating.h" />
@@ -90,6 +91,7 @@
   <ItemGroup>
     <ClCompile Include="bayesianNetwork.cpp" />
     <ClCompile Include="DataParser.cpp" />
+    <ClCompile Include="NetworkTrainer.cpp" />
     <ClCompile Include="GenreModel.cpp" />
     <ClCompile Include="Movie.cpp" />
     <ClCompile Include="MovieRating.cpp" />

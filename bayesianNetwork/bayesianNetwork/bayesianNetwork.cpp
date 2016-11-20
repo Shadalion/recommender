@@ -12,46 +12,13 @@
 #include "User.h"
 #include "Movie.h"
 #include "DataParser.h"
+#include "NetworkTrainer.h"
 
 using namespace std;
 using namespace stdext;
 #define _CRT_SECURE_NO_WARNINGS
 
-void fillUserGenresRelations(User * user, vector<string> * genres, map<int, Movie*> * movieMap, int * genresUsersCount) {
-	//Можно genreModel убрать genreId и сделать по аналогии с genres
-	for(int i = 0; i < genres->size(); i++) {
-		GenreModel * model = new GenreModel();
-		model -> genreId = i;
-		model -> isFavorite = 0;
-		user -> genresRelations.push_back(model);
-	}
 
-	int * genresRatings = new int[genres->size()];
-	int totalUserRating = 0;
-	
-	for (int i = 0; i < genres->size(); i++) {
-		genresRatings[i] = 0;
-	}
-
-	for(int i = 0; i < user -> moviesRatings.size(); i++) {
-		int * genreIds = movieMap -> find(user->moviesRatings[i]->movieId)->second->genreIds;
-		int movieGenresCount = movieMap -> find(user->moviesRatings[i]->movieId)->second->genreCount;
-		for(int j = 0; j < movieGenresCount; j++) {
-			int genreId = genreIds[j];
-			genresRatings[genreId] += (user -> moviesRatings[i]->rating);
-		}
-		totalUserRating += (user -> moviesRatings[i]->rating);
-	}
-
-	//TODO Добавить проверку булевую на проценты
-	for (int i = 0; i < genres->size(); i++) {
-		float likeProbability = (float)genresRatings[i] / totalUserRating;
-		if(likeProbability >= 0.2f) {
-			user -> genresRelations[i] -> isFavorite = 1;
-			genresUsersCount[i] ++;
-		}
-	}
-}
 
 float predictGender(User * user, float ** genderTable, float koef) {
 	float probability = 1;
@@ -65,32 +32,16 @@ float predictGender(User * user, float ** genderTable, float koef) {
 	return probability;
 }
 
-int _tmain(int argc, _TCHAR* argv[])
-{
-	DataParser dataParser;
-	map<int, User*> * userMap = new map<int,User*>();
-	map<int, Movie*> * movieMap = new map<int,Movie*>();
-	//genreId - position in vector. genres[5] = horror; - means genre "horror" has id 5;
-	vector<string> * genres = new vector<string>();
+template < typename T > void cleanMap(map<int, T*> * deletedMap){
+	for(map<int, T*>::iterator MapItor = deletedMap->begin(); MapItor != deletedMap->end(); ++MapItor) {
+		T* Value = (*MapItor).second;
+		delete Value;
+	}
+}
 
-	time_t startParseTime;
-	time(&startParseTime);
-	cout << "Parsing dataset" << endl;
-	
-	dataParser.parseRatings(userMap);
-	dataParser.parseUsers(userMap);
-	dataParser.parseMovies(movieMap, genres);
-	
-	const int genresCount = genres->size();
-
-	float **genderTable = new float*[genresCount];
-	float **occupationTable = new float*[genresCount];
-	float ** ageTable = new float*[genresCount];
-	int * genresUsersCount = new int[genresCount];//Count of users likes genre i
-	float maleGenderPrior = 0;
-	float * genrePrior = new float[genresCount];
-	float * genderPrior = new float[2]; //TODO поставить перемнную //0 - male, 1 - female
-
+// initialization of Conditional probabilities tables and prior probabilities vectors
+void tablesInit(int genresCount, float **genderTable, float ** occupationTable, float ** ageTable, int * genresUsersCount,
+				float * genrePrior, float *genderPrior) {
 	for (int i = 0; i < genresCount; i++) {
 		genrePrior[i] = 0;
 	
@@ -118,19 +69,50 @@ int _tmain(int argc, _TCHAR* argv[])
 
 		genresUsersCount[i] = 0;
 	}
+}
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	DataParser dataParser;
+	NetworkTrainer networkTrainer;
+	map<int, User*> * userMap = new map<int,User*>();
+	map<int, Movie*> * movieMap = new map<int,Movie*>();
+	//genreId - position in vector. genres[5] = horror; - means genre "horror" has id 5;
+	vector<string> * genres = new vector<string>();
+
+	time_t startParseTime;
+	time(&startParseTime);
+	cout << "Parsing dataset" << endl;
+	
+	//Parse files content into maps
+	dataParser.parseRatings(userMap);
+	dataParser.parseUsers(userMap);
+	dataParser.parseMovies(movieMap, genres);
+	//number of parsed genres
+	const int genresCount = genres->size();
+
+	float **genderTable = new float*[genresCount];//Conditional probability  sex | genres
+	float **occupationTable = new float*[genresCount]; // Conditional probability  occupation | genres
+	float ** ageTable = new float*[genresCount]; // Conditional probability  age | genre
+	int * genresUsersCount = new int[genresCount];//Count of users likes genre i
+	float maleGenderPrior = 0;
+	float * genrePrior = new float[genresCount]; // genre prior probability
+	float * genderPrior = new float[2]; //TODO поставить перемнную //0 - male, 1 - female
+	tablesInit(genresCount, genderTable, occupationTable, ageTable, genresUsersCount, genrePrior, genderPrior);
 	
 	time_t endParseTime;
 	time(&endParseTime);
-	cout << "Dataset was parsed in " + (endParseTime - startParseTime)<< endl;
+	cout << "Dataset was parsed in " + (endParseTime - startParseTime) << endl;
 	
 	cout << "Training dataset" << endl;
 	
 	for(map<int, User*>::iterator MapItor = userMap->begin(); MapItor != userMap->end(); ++MapItor)
 	{
 		User* user = (*MapItor).second;
-		fillUserGenresRelations(user, genres, movieMap, genresUsersCount);
+		networkTrainer.fillUserGenresRelations(user, genres, movieMap, genresUsersCount);
 	}
 
+	//Calculate the prior probability
 	for(map<int, Movie*>::iterator MapItor = movieMap->begin(); MapItor != movieMap->end(); ++MapItor)
 	{
 		Movie* movie = (*MapItor).second;
@@ -148,40 +130,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	}
 
 	cout << debug << endl;
-
-
-	//TODO В будущем можно объединить 2 цикла в один, пока что отдельно для понимания
-	for(map<int, User*>::iterator MapItor = userMap->begin(); MapItor != userMap->end(); ++MapItor)
-	{
-		User* user = (*MapItor).second;
-		char gender = user->gender;
-		int age = user->age;
-		int occupation = user->occupation;
-		//cout << gender << endl;
-		for(int i = 0; i < user->genresRelations.size(); i++) {
-			GenreModel * model = user->genresRelations[i];
-			if(model -> isFavorite) {
-				if(gender == 'M')
-					genderTable[i][0]++;
-				else
-					genderTable[i][1]++;
-
-				occupationTable[i][occupation]++;
-			}
-		}
-	}
-
-	for (int i = 0; i < genres->size(); i++) {
-		//cout << genresUsersCount[i] << endl;
-		for(int j = 0; j < 21; j++) {
-			occupationTable[i][j] /= (float)genresUsersCount[i];
-			//cout << "occupation i = " << i << "  j = " << j << " value " << occupationTable[i][j] << endl; 
-		}
-		for(int j = 0; j < 2; j++) {
-			genderTable[i][j] /= (float)genresUsersCount[i];
-			cout << "genre i = " << i << "  j = " << j << " value " << genderTable[i][j] << endl; 
-		}	 
-	}
+	
+	networkTrainer.fillGenderTables(userMap, genderTable, genres, genresUsersCount);
 
 	cout << "Dataset was trained in" << endl;
 	float count  = 0;
@@ -212,6 +162,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		//if(count == 3)
 			//break;
 	}
+	
 	float rate = predicted / count; 
 	cout << endl << " RATE " << rate << endl;
 	cleanMap(userMap);
@@ -221,3 +172,4 @@ int _tmain(int argc, _TCHAR* argv[])
 	getchar();
 	return 0;
 }
+
